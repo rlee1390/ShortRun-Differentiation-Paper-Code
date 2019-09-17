@@ -1,0 +1,114 @@
+/*
+This do file creates the main results
+
+Need your directory set up as followed:
+  SRDifferentiationReplication
+      Results
+      Graphs
+
+To run fix the following
+	1. Your directory
+	2. Put the date of Comtrade8699_KEEPdynamic_$c_date.dta in local date
+
+Notes on a few robustness checks:
+	1. col_ever can be replaced with "col_45"
+	2. col_ever and common_language can be replaced with "link"
+	3. t can be replaced with "yearstradedcontinuously" 
+	
+Packages needed:
+	1. poi2hdfe
+	2. outreg2
+	
+*/
+
+
+********************
+* 0. Preliminaries *
+********************
+
+clear
+set more off
+local date YOURDATE
+cd "../SRDifferentiationReplication"
+global date_string= c(current_date)
+global c_date = subinstr("$date_string", " ", "_", .)
+capture{
+log close
+}
+log using "Results/MainResults'_$c_date"
+
+
+*************
+* 1. Locals *
+*************
+
+local dep tradevalue
+local interest lndist border col_ever common_language agree_pta
+local FE1 impyear
+local FE2 expyear
+local clusvar impexp
+
+************
+* 2. Loops *
+************
+
+foreach x in "KEEP"  {
+	foreach y in "8699"   {
+
+		use "Comtrade`y'_`x'dynamic_`date'.dta", clear
+		rename contiguity border
+		label variable totalyearstraded "Total Years Traded"
+		label variable yearstradedcontinuously "Years Traded Continuously"
+		label variable link "Link"
+		label variable border "Common Border"
+		label variable lndist "Distance"
+		label variable lib "Liberal"
+		label variable con "Conservative"
+		label variable agree_pta "Trade Agreement"
+		label variable col_ever "Ever in a Colonial Relationship"
+		label variable common_language "Common Language"
+
+
+		foreach t in "totalyearstraded"  {
+		local ttext : variable label `t' 
+		if `"`ttext'"' == "" local ttext "`t'" 
+
+			foreach z in "lib" "con"  {
+			local ztext : variable label `z' 
+			if `"`ztext'"' == "" local ttext "`z'" 
+			
+				foreach s in "n" "w" {
+					foreach i in 1 3 5 7 9 11 {
+							
+							poi2hdfe `dep' `interest' if `t'==`i' & `z'=="`s'", id1(`FE1') id2(`FE2') cluster(`clusvar') tol1(0.01) tol2(0.0001) 
+							estimate store m`z'`s'_`i'
+							outreg2 using "Results/ColEver_`x'_`y'_`t'_`z'_$c_date", excel ctitle(`s', `i' ) keep (`interest' ) append label 
+		
+					}
+				}
+			
+				foreach v in `interest' {  
+				local vtext : variable label `v' 
+				if `"`vtext'"' == "" local vtext "`v'" 
+
+ ********************
+ * Produces Figures *
+ ********************
+ 
+ coefplot (m`z'w_1, offset(0.05)) (m`z'n_1, offset(-0.05)), bylabel(1)  ///
+       || m`z'w_3 m`z'n_3, bylabel(3)  ///
+       || m`z'w_5 m`z'n_5, bylabel(5)  ///
+	   || m`z'w_7 m`z'n_7, bylabel(7)  ///
+       || m`z'w_9 m`z'n_9, bylabel(9)  ///
+	   || m`z'w_11 m`z'n_11, bylabel(11)  ///
+       || , keep(`v') vertical bycoefs byopts(yrescale)  ciopts(recast(rcap)) citop  ///
+            plotlabels("Homogenous" "Differentiated") xtitle(`ttext') title(`vtext' - `ztext') note(`: data label')
+	graph export "Graphs/ColEver_`y'_`x'_`t'_`z'_`v'_$c_date.png", replace	
+				}	
+			}
+		}
+	}
+}
+
+beep
+beep
