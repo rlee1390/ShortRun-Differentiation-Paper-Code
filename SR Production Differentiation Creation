@@ -1,0 +1,382 @@
+/*
+
+This do file creates the dataset used in produces the main results in
+
+"The Short Run Effects of Product Differentiation on Trade" by Peter R Herman and Ryan Lee
+
+You'll want your directory set up as followed:
+
+     SRDifferentiationReplication                                                            
+         RawData      
+         Other
+         GravityData
+         Results
+         Graphs
+		 
+Input Files:
+	1) ImportsSITCrev2.csv
+		via: UN Comtrade, "Inital R Script" creates the csv from the raw data
+	2) Other/rauch_classification_rev2.xlsx
+		via: https://www.macalester.edu/research/economics/PAGE/HAVEMAN/Trade.Resources/TradeData.html#Rauch
+	3) GravityData\release_1.0_`start'_`end'.csv
+		via: https://www.usitc.gov/data/gravity/dataset.htm
+		Notes:	i) New releases might be added in the future
+				ii) The code below loops over every available file, but only "1978-1992" and "1993-2004" are needed
+	4) Other\UN Comtrade Country List.xls
+		via: https://unstats.un.org/unsd/tradekb/Knowledgebase/50377/Comtrade-Country-Code-and-Name
+		Notes:	i) UN is notorious at slightly changing file names, might need to update
+				ii) This section of the code is not needed for the main results
+				
+Output Files:
+	1) Comtrade8699_$c_date.dta
+	2) Comtrade8699_KEEPdynamic_$c_date.dta
+*/
+
+********************
+* 0. Preliminaries *
+********************
+
+clear
+set more off
+cd "../SRDifferentiationReplication"
+global date_string= c(current_date)
+global c_date = subinstr("$date_string", " ", "_", .)
+
+
+************************
+* 1. Import Trade Data *
+************************
+
+import delimited ImportsSITCrev2.csv, clear
+
+drop v1
+rename period year
+
+rename rt3iso iso3_d
+label variable iso3_d "Importer"
+
+rename pt3iso iso3_o
+label variable iso3_o "Exporter"
+drop if iso3_o==""
+
+rename cmdcode SITCRev2 
+label variable SITCRev2 "SITC Rev 2 product code"
+
+save "Comtrade8699_$c_date.dta", replace
+
+
+***********************************
+* 2. Adding Rauch Classifications *
+***********************************
+
+import excel "Other/rauch_classification_rev2.xlsx", sheet("Sheet1") firstrow clear
+destring sitc4, replace
+replace sitc4=int(sitc4)
+rename sitc4 SITCRev2
+merge 1:m SITCRev2 using "Comtrade8699_$c_date.dta", keep(3) nogen
+save "Comtrade8699_$c_date.dta", replace
+
+
+
+******************
+* 3. Add Gravity *
+******************
+
+import delimited "GravityData\release_1.0_1948_1977.csv", clear 
+
+foreach x in "1948_1977" "1978_1992" "1993_2004" "2005_2016" {
+	import delimited "GravityData\release_1.0_`x'.csv", clear 
+	drop country_d country_o lat_o lng_o lat_d lng_d
+	drop if year<1986 //Change
+	drop if year>1999 //Change
+	save "GravityData/8699_`x'.dta", replace //change
+}
+
+use "GravityData/8699_1948_1977.dta", clear
+foreach x in "1978_1992" "1993_2004" "2005_2016" {
+	append using "GravityData/8699_`x'.dta"
+	compress
+	}
+
+save "GravityData/8699_Gravity.dta", replace
+
+merge 1:m year iso3_d iso3_o using "Comtrade8699_$c_date.dta"
+drop if _merge==2
+drop if _merge==1
+drop region_d region_o _merge  aggrlevel
+foreach x in "d" "o" {
+drop island_`x' gdp_pwt_const_`x' pop_`x' gdp_pwt_cur_`x' capital_const_`x' capital_cur_`x' gdp_wdi_cur_`x' gdp_wdi_const_`x' gdp_wdi_cap_cur_`x' gdp_wdi_cap_const_`x' polity_`x' polity_abs_`x'
+}
+drop if con==""
+drop if lib==""
+save "Comtrade8699_$c_date.dta", replace
+
+
+*************************
+* 4. Add Starting Years *
+*************************
+
+foreach x in "d" "o" {
+	import excel "Other\UN Comtrade Country List.xls", sheet("Sheet3") firstrow clear
+	keep ISO3digitAlpha StartValidYear
+	rename ISO3digitAlpha iso3_`x'
+	rename StartValidYear startyear_`x'
+	drop if iso3_`x'=="NULL"
+	duplicates tag iso3_`x' , gen(dups)
+	sort dups iso3_`x' startyear_`x'
+	duplicates drop iso3_`x', force
+	drop dups
+	compress
+	merge 1:m iso3_`x' using "Comtrade8699_$c_date.dta", keep(2 3) nogen
+	save "Comtrade8699_$c_date.dta", replace
+}
+
+compress 
+save "Comtrade8699_$c_date.dta", replace
+
+/*
+This is where two datasets need to be created.  The issue is what is a country-pair?
+Option 1: Drop anytime a country splits; those can bias our results
+Option 2: Use the Dynamic iso codes in the gravity data, combine trade
+
+The main results combine countries into one using the dynamic ISO codes
+*/
+
+
+**************************
+* 5. Combining Countries *
+**************************
+
+use "Comtrade8699_18_Sep_2018.dta", clear
+
+egen volume = sum(tradevalue), by(dynamic_code_d dynamic_code_o year SITCRev2)
+replace tradevalue = volume
+duplicates drop iso3_d iso3_o year SITCRev2, force
+
+//Not a loop because stata hates me rn
+gen blah = substr(dynamic_code_o,1,3)
+replace iso3_o=blah
+drop blah
+
+gen blah = substr(dynamic_code_d,1,3)
+replace iso3_d=blah
+drop blah
+
+duplicates drop iso3_d iso3_o year SITCRev2, force
+drop dynamic_code_d dynamic_code_o
+compress
+
+save "Comtrade8699_KEEPdynamic_$c_date.dta", replace
+
+
+
+************************
+* 6. Generating Spells *
+************************
+
+rename SITCRev2 product
+rename iso3_d iso_d
+rename iso3_o iso_o
+sort iso_d iso_o product year
+gen yearstradedcontinuously = 1
+order product year yearstradedcontinuously, after(iso_o)
+replace yearstradedcontinuously = (yearstradedcontinuously[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year == (year[_n-1]+1) 
+
+gen totalyearstraded = 1
+order totalyearstraded, after(year)
+replace totalyearstraded = (totalyearstraded[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1]  
+label variable totalyearstraded "Total years traded, ignoring disconitunities"
+
+//Sorry for the mess, Stata wasn't taking kindly to a loop
+gen spellcount=1
+order spellcount, after(yearstradedcontinuously)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+replace spellcount=(spellcount[_n-1]+1) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & year!=(year[_n-1]+1)
+replace spellcount=spellcount[_n-1] if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & (year==year[_n-1]+1)
+
+
+save "Comtrade8699_KEEPdynamic_$c_date.dta", replace
+
+//Years Traded Continuously (A Robustness Check)
+sort iso_d iso_o product year
+keep iso_d iso_o product spellcount yearstradedcontinuously
+collapse (max) yearstradedcontinuously, by(iso_o iso_d product spellcount)
+rename yearstradedcontinuously continuousspell
+merge 1:m iso_d iso_o product spellcount using "Comtrade8699_KEEPdynamic_$c_date.dta", nogen
+order iso_o product year yearstradedcontinuously spellcount continuousspell, after(iso_d)
+save "Comtrade8699_KEEPdynamic_$c_date.dta", replace
+
+//Total Years Traded (Main Results)
+sort iso_d iso_o product year
+keep iso_d iso_o product totalyearstraded
+collapse (max) totalyearstraded, by(iso_o iso_d product)
+rename totalyearstraded maxyearstraded
+merge 1:m iso_d iso_o product using "Comtrade8699_KEEPdynamic_$c_date.dta", nogen
+order iso_o product year yearstradedcontinuously spellcount continuousspell totalyearstraded maxyearstraded, after(iso_d)
+save "Comtrade8699_KEEPdynamic_$c_date.dta", replace
+
+//Creates the average length of no-trade
+sort iso_d iso_o product year spellcount
+gen gap=.
+replace gap=(year-year[_n-1]) if iso_d==iso_d[_n-1] & iso_o==iso_o[_n-1] & product==product[_n-1] & spellcount!=(spellcount[_n-1])
+summarize gap, detail
+egen meangap=mean(gap)
+replace meangap=round(meangap)
+save "Comtrade8699_KEEPdynamic_$c_date.dta", replace
+
+//Creates the average length of trade
+drop if product==.
+duplicates drop iso_o iso_d product spellcount, force
+egen spellmean1=mean(continuousspell)
+gen meanspell=round(spellmean1)
+keep iso_o iso_d product spellcount meanspell spellmean1
+merge 1:m iso_o iso_d product spellcount using "Comtrade8699_KEEPdynamic_$c_date.dta", nogen
+drop if product==.
+save "Comtrade8699_KEEPdynamic_$c_date.dta", replace
+
+
+*************************************
+* 7 Creating Various Fixed Effects  *
+*************************************
+
+egen importer=group(iso_d) 
+destring importer, replace
+label variable importer "Group ID for Importer"
+egen exporter=group(iso_o) 
+destring exporter, replace
+label variable exporter "Group ID for Exporter"
+egen impyear=group(importer year) 
+label variable impyear "Importer-Year Fixed Effect"
+egen expyear=group(exporter year) 
+label variable expyear "Exporter-Year Fixed Effect"
+egen impexp=group(importer exporter) 
+label variable impexp "Country Pair ID"
+save "Comtrade8699_KEEPdynamic_$c_date.dta", replace
+
+*************************************
+* 8 Identifying Rauch's Countries   *
+*************************************
+
+//This list is taken from Rauch, James E., "Networks Versus Markets in International Trade," 
+//Journal of International Economics 48, no. 1 (1999):  7-35.
+//Table 1
+gen Rauch_o=0
+replace Rauch_o=1 if inlist(iso_o, "ARG", "AUS", "AUT", "BEL", "BRA", "BOL", "CAN", "CHL", "CHN") | ///
+        inlist(iso_o, "COL", "DNK", "ECU", "EGY", "ETH", "FIN", "FRA", "GHA", "GRC") | ///
+        inlist(iso_o, "HUN", "ISL", "IND", "IDN", "IRN", "IRL", "ISR", "ITA", "JPN") | ///
+        inlist(iso_o, "KEN", "KWT", "LBY", "MYS", "MEX", "MAR", "NLD", "NZL", "NGA") | ///
+        inlist(iso_o, "NOR", "PAK", "PRY", "PER", "PHL", "POL", "PRT", "SAU", "SGP") | ///
+        inlist(iso_o, "ZAF", "KOR", "ESP", "SDN", "SWE", "CHE", "THA", "TUN", "TUR") | ///
+        inlist(iso_o, "GBR", "USA", "URY", "VEN", "DEU", "DZA", "HKG")
+gen Rauch_d=0
+replace Rauch_d=1 if inlist(iso_d, "ARG", "AUS", "AUT", "BEL", "BRA", "BOL", "CAN", "CHL", "CHN") | ///
+        inlist(iso_d, "COL", "DNK", "ECU", "EGY", "ETH", "FIN", "FRA", "GHA", "GRC") | ///
+        inlist(iso_d, "HUN", "ISL", "IND", "IDN", "IRN", "IRL", "ISR", "ITA", "JPN") | ///
+        inlist(iso_d, "KEN", "KWT", "LBY", "MYS", "MEX", "MAR", "NLD", "NZL", "NGA") | ///
+        inlist(iso_d, "NOR", "PAK", "PRY", "PER", "PHL", "POL", "PRT", "SAU", "SGP") | ///
+        inlist(iso_d, "ZAF", "KOR", "ESP", "SDN", "SWE", "CHE", "THA", "TUN", "TUR") | ///
+        inlist(iso_d, "GBR", "USA", "URY", "VEN", "DEU", "DZA", "HKG") 
+gen RauchPair=Rauch_d*Rauch_o
+label variable RauchPair "=1 if pair of Countries in Rauch's dataset"
+label variable Rauch_o "=1 if origin (export) country in Rauch's dataset"
+label variable Rauch_d "=1 if destination (import) country in Rauch's dataset"
+compress
+save "Comtrade8699_KEEPdynamic_$c_date.dta", replace
+
+***********************************
+* 9 Identify Established Goods    *
+***********************************
+
+egen minyear = min(year), by (iso_d iso_o product)
+gen established=0
+
+replace established=1 if minyear==1986
+count if established==1
+drop if established==1 //Do not want previously traded goods
+compress
+save "Comtrade8699_KEEPdynamic_$c_date.dta", replace
+
+************************************
+* 10. Create Estimation Variables  *
+************************************
+
+gen lndist=ln(distance)
+label variable lndist "ln of distance"
+
+foreach x in "d" "o" {
+	tab(hostility_level_`x'), gen(hostility_`x'_dum)
+}
+
+egen col_ever = rowmax(colony_of_destination_ever colony_of_origin_ever)
+label variable col_ever "=1 if pair ever in colonial relationship"
+egen col_45 = rowmax(colony_of_destination_after45 colony_of_origin_after45)
+label variable col_ever "=1 if pair in colonial relationship after 1945"
+egen col_current = rowmax(colony_of_destination_current colony_of_origin_current)
+label variable col_current "=1 if pair currently in colonial relationship"
+
+egen link = rowmax(col_ever col_45 col_current common_language)
+label variable link "=1 if share languge or any colonial ties"
+
+compress
+label data "Years: 1986-1999. Country changes kept."
+save "Comtrade8699_KEEPdynamic_$c_date.dta", replace
+
+
+
+
+*********
+* Erase *
+*********
+
+foreach x in "1948_1977" "1978_1992" "1993_2004" "2005_2016" {
+erase "GravityData/8699_`x'.dta"
+}
