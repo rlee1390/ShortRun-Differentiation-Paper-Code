@@ -13,5 +13,6 @@
 #
 #
 #     Order of running code
-#         1. Initial R Script (R)
+#         1. SR Product Differentiation Initial R Script (R)
 #         2. SR Product Differentiation Creation (do file)
+#         3. SR Product Differentiation Main Results (do file)
