@@ -1,0 +1,79 @@
+###############################################################################################
+# Below is the first section of code in replicating                                           #
+# "The Short Run Effects of Product Differentiation on Trade" by Peter R Herman and Ryan Lee  #
+#                                                                                             #
+# For now the only set up you'll need for your directories is:                                #
+#     SRDifferentiationReplication                                                            #
+#           RawData                                                                           #
+#                                                                                             #
+# You'll need both R and Stata to replicate the paper                                         #
+###############################################################################################
+
+
+####################################################
+# 1. Download the raw trade data from COMTRADE API #
+####################################################
+
+rm(list=ls()) #Yes, I know this isn't optimal
+
+#Set your own directory 
+setwd("C:/Users/YourName/Documents/SRDifferentiationReplication")
+
+options(timeout=900) 
+
+years <- 1986:1999 #s86 to 99; Matches the current (9/13/2018) version of the paper
+
+#NOTE: You will need access to the API (via your institution most likely)
+url.start <- "https://comtrade.un.org//api/get?type=C&freq=A&px=S2&ps=1962&r=all&p=all&rg=1&cc=AG4&fmt=csv&head=M"
+
+ncol(read.csv(url(paste0(url.base,"1970",url.base2))))
+
+url.base <- strsplit(url.start,"1962")[[1]][1]
+url.base2 <- strsplit(url.start,"1962")[[1]][2]
+
+L <- data.frame()
+
+for (i in years) {
+  print(i)
+  #Paste together new url with correct year
+  url <- paste0(url.base,as.character(i),url.base2)
+  filename <- paste0('RawData/ImportsSITCrev2_',as.character(i),'.csv')
+  #Read the data
+  
+  download.file(url, destfile = filename, method = "curl")
+  
+}
+
+
+#########################################################
+# 2. Performs basic cleaning before entering into Stata #
+#########################################################
+
+
+years <- 1986:1999 #start is 1962
+
+
+L <- data.frame()
+
+
+for (i in years) {
+  print(i)
+  
+  filename <- paste0('RawData/ImportsSITCrev2_',as.character(i),'.csv')
+  dat <- read.csv(file=filename, TRUE) ##changing from read.csv() to download.csv()
+  
+  #Drops if Partner is the World
+  dat <- subset(dat, ptTitle!='World')
+  
+  #Creates a list of the variabels to keep
+  myvars <- c("period", "aggrLevel", "rt3ISO", "pt3ISO", "cmdCode", "TradeValue") 
+  #Goes through the data being used, and only keeps from list
+  dat <- dat[myvars]
+  
+  #Combine the data
+  L <- rbind(L,dat)
+}
+
+L
+
+write.csv(L,"ImportsSITCrev2.csv")
