@@ -18,6 +18,7 @@ Notes on a few robustness checks:
 Packages needed:
 	1. poi2hdfe
 	2. outreg2
+	3. reghdfe
 	
 */
 
