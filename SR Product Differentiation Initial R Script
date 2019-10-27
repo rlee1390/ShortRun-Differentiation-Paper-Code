@@ -2,7 +2,7 @@
 # Below is the first section of code in replicating                                           #
 # "The Short Run Effects of Product Differentiation on Trade" by Peter R Herman and Ryan Lee  #
 #                                                                                             #
-# For now the only set up you'll need for your directories is:                                #
+# For now the only set up you'll need for your directories are:                               #
 #     SRDifferentiationReplication                                                            #
 #           RawData                                                                           #
 #                                                                                             #
@@ -21,15 +21,15 @@ setwd("C:/Users/YourName/Documents/SRDifferentiationReplication")
 
 options(timeout=900) 
 
-years <- 1986:1999 #s86 to 99; Matches the current (9/13/2018) version of the paper
+years <- 1986:1999 #s86 to 99; Matches the current version of the paper
 
 #NOTE: You will need access to the API (via your institution most likely)
 url.start <- "https://comtrade.un.org//api/get?type=C&freq=A&px=S2&ps=1962&r=all&p=all&rg=1&cc=AG4&fmt=csv&head=M"
 
 ncol(read.csv(url(paste0(url.base,"1970",url.base2))))
 
-url.base <- strsplit(url.start,"1962")[[1]][1]
-url.base2 <- strsplit(url.start,"1962")[[1]][2]
+url.base <- strsplit(url.start,"1986")[[1]][1]
+url.base2 <- strsplit(url.start,"1986")[[1]][2]
 
 L <- data.frame()
 
@@ -50,7 +50,7 @@ for (i in years) {
 #########################################################
 
 
-years <- 1986:1999 #start is 1962
+years <- 1986:1999 #start is 1986
 
 
 L <- data.frame()
