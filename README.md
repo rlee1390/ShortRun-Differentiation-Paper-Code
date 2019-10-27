@@ -16,3 +16,5 @@
          1. SR Product Differentiation Initial R Script (R)
          2. SR Product Differentiation Creation (do file)
          3. SR Product Differentiation Main Results (do file)
+         
+If you want to replicate any robustness checks, contact Ryan Lee at RLEE2@laverne.edu, though most of the provided code can be easily modified to produce the robustness checks.
