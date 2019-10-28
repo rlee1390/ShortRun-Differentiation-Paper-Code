@@ -1,7 +1,8 @@
  ShortRun-Differentiation-Paper-Code
 
  This folder contains the code to replicate the primary results from
- "The Short-Run Effects of Product Differentiation on Trade" by Peter R Herman and Ryan Lee.
+ "The Short-Run Effects of Product Differentiation on Trade" by Peter R Herman and Ryan Lee. 
+ It is assumed you have access to UN Comtrade, otherwise you will not be able to download the trade data.
  You'll want to set up your directory as follows:
  
      Parent: SRDifferentiationReplication                                                            
